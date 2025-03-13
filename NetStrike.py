@@ -9,6 +9,9 @@ from urllib.parse import urlparse
 from sys import exit as _exit
 from time import sleep, time
 from random import randint
+from json import load
+from pydantic import BaseModel, ValidationError
+from argparse import ArgumentParser
 
 # Check for root
 if not ((name == 'nt' and __import__('ctypes').windll.shell32.IsUserAnAdmin() != 0) or (name != 'nt' and __import__('os').geteuid() == 0)):
@@ -27,6 +30,14 @@ addLevelName(SUCCESS, "SUCCESS")
 # Configure logging
 basicConfig(level = INFO, format = '%(message)s')
 logger = getLogger()
+
+class Config(BaseModel):
+    attack_type:str
+    target:str
+    attack_time:int=30
+    packet_size:int=1000
+    request_count:int=1000
+    thread_count:int=8
 
 class CustomFormatter(Formatter):
     FORMATS = {
@@ -173,16 +184,36 @@ def validate_url(url):
        logger.error("Invalid URL format.") or _exit(1)
 
 def validate_num_requests(num):
-    return int(num) if num.isdigit() and int(num) > 0 else logger.error("Please enter a positive integer for the number of requests.") or _exit(1)
+    if not isinstance(num,int):
+        try:
+            num = int(num)
+        except ValueError:
+            _exit(1)
+    return num if num > 0 else logger.error("Please enter a positive integer for the number of requests.") or _exit(1)
 
 def validate_packet_size(size):
-    return int(size) if size.isdigit() and 1 <= int(size) <= 65495 else logger.error("Please choose a size between 1 and 65495") or _exit(1)
+    if not isinstance(size,int):
+        try:
+            size = int(size)
+        except ValueError:
+            _exit(1)
+    return int(size) if 1 <= size <= 65495 else logger.error("Please choose a size between 1 and 65495") or _exit(1)
 
 def validate_thread_count(count):
-    return int(count) if count.isdigit() and int(count) > 0 else logger.error("Please enter a positive integer for the thread count.") or _exit(1)
+    if not isinstance(count,int):
+        try:
+            count = int(count)
+        except ValueError:
+            _exit(1)
+    return count if count > 0 else logger.error("Please enter a positive integer for the thread count.") or _exit(1)
 
 def validate_duration(duration):
-    return int(duration) if duration.isdigit() and int(duration) > 0 else logger.error("Duration must be a positive integer.") or _exit(1)
+    if not isinstance(duration,int):
+        try:
+            duration = int(duration)
+        except ValueError:
+            _exit(1)
+    return duration if duration > 0 else logger.error("Duration must be a positive integer.") or _exit(1)
 
 def convert_bytes(num):
     for unit in ["Bytes", "KB", "MB", "GB", "TB"]:
@@ -199,31 +230,28 @@ def main():
         '3': {'func': udp_flood, 'proto': 'UDP'},
         '4': {'func': http_flood, 'proto': 'HTTP'}
     }
-
+    parser = ArgumentParser()
+    parser.add_argument("config_file",type=str,help="Path to config file")
+    args = parser.parse_args()
     try:
-        display_banner()
-
-        print("\033[1;93m----- Attack Types -----   \033[1;35m⊂ (˶ᵔ ᵕ ᵔ˶ ⊂ )\n")
-        print("   \033[1;34m1. \033[2;32mTCP SYN Flood")
-        print("   \033[1;34m2. \033[2;32mICMP Flood")
-        print("   \033[1;34m3. \033[2;32mUDP Flood")
-        print("   \033[1;34m4. \033[2;32mHTTP Flood")
-        print("   \033[1;34m5. \033[2;32mExit")
-
-        attack_type = validate_attack_type(input("\n\033[1;34m[>] \033[2;32mSelect Attack Type \xBB\033[0m\033[1;77m ").strip())
+        with open(args.config_file,"r") as file:
+            data = load(file)
+        config = Config(**data)
+        attack_type = validate_attack_type(config.attack_type)
+        
         if attack_type == '4':
-            target_url = validate_url(input("\033[1;34m[>] \033[2;32mEnter the target URL \xBB\033[0m\033[1;77m ").strip())
-            num_requests = validate_num_requests(input("\033[1;34m[>] \033[2;32mEnter how many requests do you want to send in each cycle \xBB\033[0m\033[1;77m ").strip())
+            target_url = validate_url(config.target)
+            num_requests = validate_num_requests(config.thread_count)
 
         elif attack_type == '5':
             logger.info("\033[1;96mExiting...")
             _exit(0)
         else:
-            target_ip = validate_ip(input("\033[1;34m[>] \033[2;32mEnter the target IP or hostname \xBB\033[0m\033[1;77m ").strip())
-            packet_size = validate_packet_size(input("\033[1;34m[>] \033[2;32mEnter the packet size \xBB\033[0m\033[1;77m ").strip())
-            thread_count = validate_thread_count(input("\033[1;34m[>] \033[2;32mEnter how many threads to use \xBB\033[0m\033[1;77m ").strip())
+            target_ip = validate_ip(config.target)
+            packet_size = validate_packet_size(config.packet_size)
+            thread_count = validate_thread_count(config.thread_count)
 
-        duration = validate_duration(input("\033[1;34m[>] \033[2;32mEnter how long (in seconds) to run the attack \xBB\033[0m\033[1;77m ").strip())
+        duration = validate_duration(config.attack_time)
 
         attack_details = attack_types[attack_type]
         attack_name = attack_details['proto']
